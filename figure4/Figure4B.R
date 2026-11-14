@@ -1,0 +1,181 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Forest plot: Interaction (Lighting | Artifacts | Camerawork)
+# Requires: ggplot2, scales
+# ─────────────────────────────────────────────────────────────────────────────
+
+library(ggplot2)
+library(scales)
+
+# ── 1. Load data ──────────────────────────────────────────────────────────────
+lighting   <- read.csv("./figure4/interaction_lighting.csv", check.names = FALSE, fileEncoding = "UTF-8-BOM")
+artifact   <- read.csv("./figure4/interaction_artifact.csv", check.names = FALSE, fileEncoding = "UTF-8-BOM")
+camerawork <- read.csv("./figure4/interaction_camerawork.csv", check.names = FALSE, fileEncoding = "UTF-8-BOM")
+
+# Rename 'models' to 'model' for script uniformity
+colnames(lighting)[1]   <- "model"
+colnames(artifact)[1]   <- "model"
+colnames(camerawork)[1] <- "model"
+
+# ── 2. Strip asterisks and trailing dashes ────────────────────────────────────
+clean_names <- function(df) {
+  df$model <- trimws(gsub("\\*", "", df$model))   # Strip asterisks
+  df$model <- trimws(gsub(" -$", "", df$model))  # Strip trailing space and hyphen
+  df
+}
+lighting   <- clean_names(lighting)
+artifact   <- clean_names(artifact)
+camerawork <- clean_names(camerawork)
+
+# ── 3. Comprehensive Master Row Order (Cleaned Names) ─────────────────────────
+master_levels <- c(
+  # Base Models
+  "BiomedCLIP", "Citrus-V", "Claude", "Llama", "Monet", "SkinGPT",
+  
+  # Objective Quality Metrics (Dashes removed)
+  "Lighting", "Camerawork", "Artifacts",
+  
+  # Subjective Quality Metrics
+  "Morphology", "Size", "Demarcation", "Color", "Texture", "Distribution",
+  
+  # Lighting Interaction Terms
+  "BiomedCLIP x Lighting", "Citrus-V x Lighting", "Claude x Lighting", 
+  "Llama x Lighting", "Monet x Lighting", "SkinGPT x Lighting",
+  
+  # Artifacts Interaction Terms
+  "BiomedCLIP x Artifacts", "Citrus-V x Artifacts", "Claude x Artifacts", 
+  "Llama x Artifacts", "Monet x Artifacts", "SkinGPT x Artifacts",
+  
+  # Camerawork Interaction Terms
+  "BiomedCLIP x Camerawork", "Citrus-V x Camerawork", "Claude x Camerawork", 
+  "Llama x Camerawork", "Monet x Camerawork", "SkinGPT x Camerawork"
+)
+
+# ── 4. Pad every dataset to the full 33-row set (NA for absent rows) ──────────
+pad_to_master <- function(df, master) {
+  df <- df[, c("model", "OR", "lower", "upper")]
+  missing <- setdiff(master, df$model)
+  if (length(missing) > 0) {
+    df <- rbind(df, data.frame(model = missing, OR = NA_real_,
+                               lower = NA_real_, upper = NA_real_,
+                               stringsAsFactors = FALSE))
+  }
+  df$model <- factor(df$model, levels = rev(master))
+  df
+}
+
+lighting_p   <- pad_to_master(lighting, master_levels)
+artifact_p   <- pad_to_master(artifact, master_levels)
+camerawork_p <- pad_to_master(camerawork, master_levels)
+
+# ── 5. Shared x limits & Padding ──────────────────────────────────────────────
+x_lo <- 0.005
+x_hi <- 35.0
+
+# ── 6. Long data with panel factor ────────────────────────────────────────────
+panel_levels <- c("Mode X Lighting", "Model X Artifacts", "Model X Camerawork")
+
+all_data <- rbind(
+  transform(lighting_p,   panel = panel_levels[1]),
+  transform(artifact_p,   panel = panel_levels[2]),
+  transform(camerawork_p, panel = panel_levels[3])
+)
+all_data$panel <- factor(all_data$panel, levels = panel_levels)
+
+# ── 7. Row highlight positions ────────────────────────────────────────────────
+n_rows <- length(master_levels)
+hl_pos <- seq(2, n_rows, by = 2)
+
+# Left-of-labels extension, restricted to the FIRST facet only
+left_ext <- data.frame(ymin  = hl_pos - 0.5,
+                       ymax  = hl_pos + 0.5,
+                       panel = factor(panel_levels[1], levels = panel_levels))
+
+# ── 8. Plot ───────────────────────────────────────────────────────────────────
+p <- ggplot(all_data, aes(x = OR, y = model)) +
+  
+  # Background Shading
+  annotate("rect",
+           ymin = hl_pos - 0.5, ymax = hl_pos + 0.5,
+           xmin = x_lo, xmax = x_hi,
+           fill = "grey94") +
+  
+  geom_rect(data = left_ext,
+            aes(ymin = ymin, ymax = ymax),
+            xmin = x_lo * 1e-6, xmax = x_lo,
+            fill = "grey94", inherit.aes = FALSE) +
+  
+  # Manual Y-axis line drawn on ALL panels exactly at the left border
+  geom_vline(xintercept = x_lo, colour = "grey55", linewidth = 0.5) +
+  
+  # Lighter vertical dotted lines for core increments
+  geom_vline(xintercept = c(0.01, 0.1, 10), linetype = "dotted",
+             colour = "grey75", linewidth = 0.4) +
+  
+  # Main reference line at OR = 1
+  geom_vline(xintercept = 1, linetype = "dashed",
+             colour = "grey55", linewidth = 0.5) +
+  
+  # Data geometries
+  geom_errorbarh(aes(xmin = lower, xmax = upper),
+                 height = 0.25, linewidth = 0.6,
+                 colour = "black", na.rm = TRUE) +
+  
+  geom_point(size = 2.8, colour = "black", shape = 15, na.rm = TRUE) +
+  
+  # Position titles underneath the panels
+  facet_grid(. ~ panel, switch = "x") +
+  
+  scale_x_log10(
+    limits = c(x_lo, x_hi),
+    breaks = c(0.01, 0.1, 1, 10), 
+    labels = label_number(drop0trailing = TRUE),
+    expand = expansion(0),
+    oob    = scales::oob_keep
+  ) +
+  scale_y_discrete(drop = FALSE) +
+  coord_cartesian(clip = "off") +
+  
+  labs(
+    x     = "Odds Ratio (log scale)",
+    y     = NULL
+  ) +
+  
+  theme_minimal(base_size = 10) +
+  theme(
+    
+    strip.text         = element_text(face = "bold", size = 10.5, hjust = 0.5,
+                                      margin = margin(t = 12, b = 5)),
+    strip.background   = element_blank(),
+    strip.placement    = "outside", 
+    
+    axis.text.y        = element_text(size = 8.5, colour = "grey40", hjust = 1),
+    axis.text.x        = element_text(colour = "grey40"),
+    axis.title.x       = element_text(size = 9, colour = "grey40",
+                                      margin = margin(t = 8)),
+    
+    # Axis line settings
+    axis.line.x        = element_line(colour = "grey55", linewidth = 0.5),
+    axis.line.y        = element_blank(), 
+    
+    panel.grid.major.x = element_blank(),
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor   = element_blank(),
+    
+    panel.background   = element_blank(),
+    panel.border       = element_blank(),
+    panel.spacing.x    = unit(1.5, "lines"), 
+    legend.position    = "none",
+    plot.margin        = margin(12, 12, 12, 12)
+  )
+
+# ── 9. Save ───────────────────────────────────────────────────────────────────
+ggsave(
+  filename = "forest_plot_interactions.png",
+  plot     = p,
+  width    = 14,  
+  height   = 13,  
+  dpi      = 300,
+  bg       = "white"
+)
+
+message("Saved: forest_plot_interactions.png")

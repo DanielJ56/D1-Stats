@@ -1,0 +1,120 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Forest plot: Reduced Model | Objective Quality | Subjective Quality
+# Requires: ggplot2, patchwork, scales
+# ─────────────────────────────────────────────────────────────────────────────
+
+library(ggplot2)
+library(patchwork)
+library(scales)
+
+# ── 1. Load data ──────────────────────────────────────────────────────────────
+reduced    <- read.csv("reduced.csv",    check.names = FALSE)
+objective  <- read.csv("objective.csv",  check.names = FALSE)
+subjective <- read.csv("subjective.csv", check.names = FALSE)
+
+# ── 2. Tag row type (AI Model vs. Image Quality Metric) ───────────────────────
+tag_group <- function(df) {
+  df$group <- ifelse(grepl("\\*", df$model), "Image Quality Metric", "AI Model")
+  df
+}
+
+reduced    <- tag_group(reduced)
+objective  <- tag_group(objective)
+subjective <- tag_group(subjective)
+
+# ── 3. Colour / shape palette ─────────────────────────────────────────────────
+col_vals   <- c("AI Model" = "#1B6CA8", "Image Quality Metric" = "#B03A2E")
+shape_vals <- c("AI Model" = 15,        "Image Quality Metric" = 18)       # square / diamond
+
+# ── 4. Forest panel builder ───────────────────────────────────────────────────
+forest_panel <- function(data, title, show_y_axis = TRUE, show_legend = FALSE) {
+  
+  # Reverse factor so first row appears at the top
+  data$model <- factor(data$model, levels = rev(data$model))
+  
+  # OR (95% CI) label
+  data$ci_label <- sprintf("%.3f (%.3f\u2013%.3f)", data$OR, data$lower, data$upper)
+  
+  # x-axis range on log scale — extend right to leave room for text labels
+  x_lo <- min(data$lower) * 0.5
+  x_hi <- max(data$upper) * 6          # generous room for OR text
+  
+  p <- ggplot(data, aes(x = OR, y = model, colour = group, shape = group)) +
+    
+    # Reference line at OR = 1
+    geom_vline(xintercept = 1, linetype = "dashed",
+               colour = "grey45", linewidth = 0.5) +
+    
+    # Confidence intervals
+    geom_errorbarh(aes(xmin = lower, xmax = upper),
+                   height = 0.30, linewidth = 0.65) +
+    
+    # Point estimates
+    geom_point(size = 3.5) +
+    
+    # OR (CI) text — placed at the right edge of the panel
+    geom_text(aes(x = max(data$upper) * 2.2, label = ci_label),
+              hjust = 0, size = 2.65, colour = "grey20", show.legend = FALSE) +
+    
+    scale_x_log10(
+      limits = c(x_lo, x_hi),
+      breaks = c(0.03, 0.1, 0.3, 1, 3),
+      labels = label_number(drop0trailing = TRUE)
+    ) +
+    scale_colour_manual(values = col_vals, name = NULL) +
+    scale_shape_manual( values = shape_vals, name = NULL) +
+    
+    labs(title = title, x = "Odds Ratio (log scale)", y = NULL) +
+    
+    theme_classic(base_size = 10) +
+    theme(
+      plot.title       = element_text(face = "bold", hjust = 0.5, size = 10.5),
+      axis.text.y      = if (show_y_axis) element_text(size = 8.5) else element_blank(),
+      axis.ticks.y     = if (show_y_axis) element_line() else element_blank(),
+      axis.title.x     = element_text(size = 9, margin = margin(t = 4)),
+      legend.position  = if (show_legend) "bottom" else "none",
+      legend.text      = element_text(size = 9),
+      panel.grid.major.x = element_line(colour = "grey92", linewidth = 0.3),
+      plot.margin      = margin(8, 4, 8, 4)
+    )
+  
+  p
+}
+
+# ── 5. Build the three panels ─────────────────────────────────────────────────
+p1 <- forest_panel(reduced,    title = "Reduced Model",            show_legend = FALSE)
+p2 <- forest_panel(objective,  title = "Objective Quality Metrics", show_legend = FALSE)
+p3 <- forest_panel(subjective, title = "Subjective Quality Metrics", show_legend = TRUE)
+
+# ── 6. Combine with patchwork ─────────────────────────────────────────────────
+combined <- (p1 | p2 | p3) +
+  plot_layout(guides = "collect", widths = c(1, 1.4, 1.4)) &    # wider for panels with more rows
+  theme(legend.position = "bottom")
+
+combined <- combined +
+  plot_annotation(
+    title   = "Forest Plots of Odds Ratios by Model Type and Image Quality",
+    caption = paste(
+      "* Interaction term between image quality metric and AI model.",
+      "OR = Odds Ratio; error bars = 95% confidence intervals.",
+      "Dashed line indicates null effect (OR = 1). Log scale x-axis."
+    ),
+    theme = theme(
+      plot.title   = element_text(face = "bold", hjust = 0.5, size = 13,
+                                  margin = margin(b = 6)),
+      plot.caption = element_text(size = 8, colour = "grey35", hjust = 0,
+                                  margin = margin(t = 8))
+    )
+  )
+
+# ── 7. Save ───────────────────────────────────────────────────────────────────
+ggsave(
+  filename = "forest_plot.png",
+  plot     = combined,
+  width    = 18,
+  height   = 9,
+  dpi      = 300,
+  bg       = "white"
+)
+
+message("Saved: forest_plot.png")

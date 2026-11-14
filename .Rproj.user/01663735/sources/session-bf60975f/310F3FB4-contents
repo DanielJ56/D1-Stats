@@ -1,0 +1,36 @@
+# Load necessary libraries
+library(tidyverse)
+
+# 1. List all files and read them
+files <- list.files(pattern = "./figure3/interaction_.*\\.csv")
+
+# 2. Function to read and extract interaction rows
+# We define "interaction" as rows containing an "x"
+extract_interactions <- function(file) {
+  df <- read.csv(file)
+  # Filter rows that contain ' x ' (case sensitive based on your files)
+  df_inter <- df[grepl(" x ", df$models), ]
+  # Add a column identifying the source variable category
+  df_inter$category <- gsub("interaction_", "", tools::file_path_sans_ext(file))
+  return(df_inter)
+}
+
+# 3. Combine all files into one dataframe
+all_data <- map_df(files, extract_interactions)
+
+# 4. Clean up names for the heatmap
+# Split the "models" column to get Model Name and Variable Level
+all_data <- all_data %>%
+  separate(models, into = c("Model", "Variable_Level"), sep = " x ", extra = "merge")
+
+# 5. Create the Heatmap
+ggplot(all_data, aes(x = Variable_Level, y = Model, fill = OR)) +
+  geom_tile(color = "white") +
+  # Using a log scale for OR is often better if values vary widely (e.g., <1 and >1)
+  scale_fill_gradient2(low = "blue", mid = "white", high = "red", midpoint = 1) +
+  theme_minimal() +
+  labs(title = "Odds Ratio of Model Interactions",
+       x = "Interaction Variable Level",
+       y = "Model",
+       fill = "Odds Ratio") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))

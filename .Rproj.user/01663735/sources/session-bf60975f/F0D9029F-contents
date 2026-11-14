@@ -1,0 +1,203 @@
+# ==============================================================================
+# Heatmap Visualization for Interaction Odds Ratios
+# ==============================================================================
+
+# 1. Load required libraries
+library(ggplot2)
+library(dplyr)
+library(stringr)
+library(tidyr)
+
+# 2. Load the datasets (assumed to be in the current working directory)
+shot_raw <- read.csv("./figure4/interaction_shot.csv", stringsAsFactors = FALSE)
+age_raw  <- read.csv("./figure4/interaction_age.csv", stringsAsFactors = FALSE)
+fst_raw  <- read.csv("./figure4/interaction_fst.csv", stringsAsFactors = FALSE)
+
+# 3. Define data parsing function to map rows to Model & Category grid coordinates
+process_interaction_data <- function(df, file_type) {
+  # Define reference category based on the file type
+  ref_cat <- switch(file_type,
+                    "Shot Type" = "At An Angle",
+                    "Age Group" = "18-39",
+                    "Skin Type (FST)" = "FST I/II")
+  
+  models_list <- c("BiomedCLIP", "Citrus-V", "Claude", "Llama", "Monet", "SkinGPT")
+  
+  # Omit clinical factors and imaging quality metrics as requested
+  unwanted <- c("Lighting", "Camerawork", "Artifacts", "Morphology", "Size", 
+                "Demarcation", "Color", "Texture", "Distribution")
+  
+  df_filtered <- df %>%
+    filter(!str_detect(models, paste(unwanted, collapse = "|")))
+  
+  df_parsed <- df_filtered %>%
+    mutate(
+      # Extract Model name
+      Model = case_when(
+        models %in% models_list ~ models,
+        models %in% c("At a Distance", "Close Up", "40 to 59 Years", "60 to 79 Years", 
+                      "Fitzpatrick III & IV", "Fitzpatrick V & VI") ~ "ChatGPT",
+        str_detect(models, " x ") ~ str_split_fixed(models, " x ", 2)[, 1],
+        TRUE ~ NA_character_
+      ),
+      # Extract Category name and map interaction shorthand back to full names
+      Category = case_when(
+        models %in% models_list ~ ref_cat,
+        models %in% c("At a Distance", "Close Up", "40 to 59 Years", "60 to 79 Years", 
+                      "Fitzpatrick III & IV", "Fitzpatrick V & VI") ~ models,
+        str_detect(models, " x ") ~ {
+          cat_part <- str_split_fixed(models, " x ", 2)[, 2]
+          case_when(
+            file_type == "Shot Type" & str_detect(cat_part, "Distance") ~ "At a Distance",
+            file_type == "Shot Type" & str_detect(cat_part, "Close Up") ~ "Close Up",
+            file_type == "Age Group" & str_detect(cat_part, "40 to 59") ~ "40 to 59 Years",
+            file_type == "Age Group" & str_detect(cat_part, "60 to 79") ~ "60 to 79 Years",
+            file_type == "Skin Type (FST)" & str_detect(cat_part, "III & IV") ~ "Fitzpatrick III & IV",
+            file_type == "Skin Type (FST)" & str_detect(cat_part, "V & VI") ~ "Fitzpatrick V & VI",
+            TRUE ~ cat_part
+          )
+        },
+        TRUE ~ NA_character_
+      ),
+      Facet = file_type
+    )
+  
+  # Inject the absolute reference baseline row (ChatGPT at the reference category)
+  ref_row <- data.frame(
+    models = ref_cat, OR = 1.0, lower = 1.0, upper = 1.0, p.value = 1.0,
+    Model = "ChatGPT", Category = ref_cat, Facet = file_type,
+    stringsAsFactors = FALSE
+  )
+  
+  df_parsed <- bind_rows(df_parsed, ref_row)
+  return(df_parsed)
+}
+
+# Process each dataset
+shot_clean <- process_interaction_data(shot_raw, "Shot Type")
+age_clean  <- process_interaction_data(age_raw, "Age Group")
+fst_clean  <- process_interaction_data(fst_raw, "Skin Type (FST)")
+
+# Combine into a unified long data frame
+all_raw_terms <- bind_rows(shot_clean, age_clean, fst_clean)
+
+# Explicitly order factors for perfect alignment
+model_order <- c("ChatGPT", "BiomedCLIP", "Citrus-V", "Claude", "Llama", "Monet", "SkinGPT")
+category_order <- c(
+  "At An Angle", "At a Distance", "Close Up",
+  "18-39", "40 to 59 Years", "60 to 79 Years",
+  "FST I/II", "Fitzpatrick III & IV", "Fitzpatrick V & VI"
+)
+
+all_raw_terms <- all_raw_terms %>%
+  mutate(
+    Model = factor(Model, levels = model_order),
+    Category = factor(Category, levels = rev(category_order)),
+    Facet = factor(Facet, levels = c("Shot Type", "Age Group", "Fitzpatrick Skin Type")),
+    signif = case_when(
+      p.value < 0.001 ~ "***",
+      p.value < 0.01  ~ "**",
+      p.value < 0.05  ~ "*",
+      TRUE            ~ ""
+    ),
+    label = paste0(round(OR, 2), signif)
+  )
+
+# ==============================================================================
+# APPROACH A: Plotting Raw Table Terms Directly
+# ==============================================================================
+p_raw <- ggplot(all_raw_terms, aes(x = Model, y = Category, fill = log(OR))) +
+  geom_tile(color = "white", size = 0.5) +
+  geom_text(aes(label = label), color = "black", size = 3.5) +
+  facet_grid(Facet ~ ., scales = "free_y", space = "free_y") +
+  scale_fill_gradient2(
+    low = "#0047AB", mid = "#ffffef", high = "#FF2400", 
+    midpoint = 0, name = "log(OR)"
+  ) +
+  theme_minimal(base_size = 12) +
+  labs(
+    x = "Models",y = NULL
+  ) +
+  theme(
+    panel.grid = element_blank(),
+    strip.text.y = element_text(angle = 0, face = "bold", size = 11, hjust = 0),
+    axis.text.x = element_text(angle = 45, hjust = 1, face = "bold"),
+    axis.text.y = element_text(face = "bold"),
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(hjust = 0.5, color = "gray40")
+  )
+
+ggsave("heatmap_raw_coefficients.png", plot = p_raw, width = 9, height = 7.5, dpi = 300)
+
+
+# ==============================================================================
+# APPROACH B: Plotting Full Combined Cell Odds Ratios
+# ==============================================================================
+calculate_combined_grid <- function(df_clean, file_type) {
+  ref_cat <- switch(file_type,
+                    "Shot Type" = "At An Angle",
+                    "Age Group" = "18-39",
+                    "Skin Type (FST)" = "FST I/II")
+  
+  model_main <- df_clean %>% filter(Category == ref_cat) %>% select(Model, OR_model = OR)
+  cat_main   <- df_clean %>% filter(Model == "ChatGPT") %>% select(Category, OR_cat = OR)
+  interactions <- df_clean %>% filter(Model != "ChatGPT" & Category != ref_cat) %>% select(Model, Category, OR_int = OR, p.value)
+  
+  full_grid <- expand.grid(Model = model_order, Category = unique(df_clean$Category), stringsAsFactors = FALSE)
+  
+  full_grid %>%
+    left_join(model_main, by = "Model") %>%
+    left_join(cat_main, by = "Category") %>%
+    left_join(interactions, by = c("Model", "Category")) %>%
+    mutate(
+      OR_model = coalesce(OR_model, 1.0),
+      OR_cat = coalesce(OR_cat, 1.0),
+      OR_int = coalesce(OR_int, 1.0),
+      Combined_OR = OR_model * OR_cat * OR_int,
+      p.value = coalesce(p.value, 1.0),
+      Facet = file_type
+    )
+}
+
+all_combined_data <- bind_rows(
+  calculate_combined_grid(shot_clean, "Shot Type"),
+  calculate_combined_grid(age_clean, "Age Group"),
+  calculate_combined_grid(fst_clean, "Skin Type (FST)")
+) %>%
+  mutate(
+    Model = factor(Model, levels = model_order),
+    Category = factor(Category, levels = rev(category_order)),
+    Facet = factor(Facet, levels = c("Shot Type", "Age Group", "Skin Type (FST)")),
+    signif = case_when(
+      p.value < 0.001 ~ "***",
+      p.value < 0.01  ~ "**",
+      p.value < 0.05  ~ "*",
+      TRUE            ~ ""
+    ),
+    label = paste0(round(Combined_OR, 2), signif)
+  )
+
+p_combined <- ggplot(all_combined_data, aes(x = Model, y = Category, fill = log(Combined_OR))) +
+  geom_tile(color = "white", size = 0.5) +
+  geom_text(aes(label = label), color = "black", size = 3.5) +
+  facet_grid(Facet ~ ., scales = "free_y", space = "free_y") +
+  scale_fill_gradient2(
+    low = "#313695", mid = "#ffffbf", high = "#a50026", 
+    midpoint = 0, name = "log(Combined OR)"
+  ) +
+  theme_minimal(base_size = 12) +
+  labs(
+    title = "Heatmap of Absolute Combined Odds Ratios",
+    subtitle = "Every tile displays the net Odds Ratio relative to the baseline condition (ChatGPT at Reference)",
+    x = "Models", y = "Categories"
+  ) +
+  theme(
+    panel.grid = element_blank(),
+    strip.text.y = element_text(angle = 0, face = "bold", size = 11, hjust = 0),
+    axis.text.x = element_text(angle = 45, hjust = 1, face = "bold"),
+    axis.text.y = element_text(face = "bold"),
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(hjust = 0.5, color = "gray30")
+  )
+
+ggsave("heatmap_combined_odds_ratios.png", plot = p_combined, width = 9, height = 7.5, dpi = 300)

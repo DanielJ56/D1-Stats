@@ -1,0 +1,30 @@
+models,OR,lower,upper,p-value
+BiomedCLIP,0.084,0.055,0.128,0.001
+Citrus-V,0.07,0.044,0.11,0.001
+Claude,0.749,0.567,0.988,0.041
+Llama,0.527,0.395,0.704,0.001
+Monet,0.105,0.071,0.156,0.001
+SkinGPT,0.107,0.071,0.16,0.001
+Lighting -,1.325,0.99,1.774,0.059
+Camerawork -,1.214,0.929,1.585,0.155
+Artifacts -,1.055,0.669,1.664,0.817
+Morphology*,0.924,0.677,1.261,0.618
+Size*,1.011,0.685,1.491,0.956
+Demarcation*,1.679,0.993,2.839,0.053
+Color*,1.155,0.754,1.769,0.507
+Texture*,1.045,0.767,1.422,0.781
+Distribution*,0.85,0.638,1.133,0.268
+At a Distance,1.261,0.926,1.716,0.141
+Close Up,1.523,1.122,2.067,0.007
+BiomedCLIP x Distance,0.628,0.341,1.156,0.135
+BiomedCLIP x Close Up,0.515,0.283,0.939,0.03
+Citrus-V x Distance,0.66,0.34,1.28,0.219
+Citrus-V x Close Up,0.503,0.262,0.968,0.04
+Claude x Distance,0.863,0.586,1.271,0.455
+Claude x Close Up,0.795,0.541,1.167,0.241
+Llama x Distance,1.206,0.811,1.794,0.354
+Llama x Close Up,0.966,0.651,1.434,0.863
+Monet x Distance,0.842,0.488,1.455,0.538
+Monet x Close Up,1.031,0.615,1.73,0.907
+SkinGPT x Distance,0.791,0.446,1.401,0.421
+SkinGPT x Close Up,0.526,0.295,0.94,0.03

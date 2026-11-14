@@ -1,0 +1,92 @@
+# ── Packages ──────────────────────────────────────────────────────────────────
+library(ggplot2)
+library(tidyr)
+library(dplyr)
+library(readr)
+library(scales)
+
+# ── Load data ─────────────────────────────────────────────────────────────────
+df_raw <- read_csv("./figure2/model_accuracy.csv", show_col_types = FALSE)
+
+# ── Reshape: wide → long, drop the Total column ───────────────────────────────
+df_long <- df_raw |>
+  select(-Total) |>                          # remove totals column
+  rename(Category = output) |>
+  pivot_longer(
+    cols      = -Category,
+    names_to  = "Model",
+    values_to = "Count"
+  ) |>
+  mutate(
+    # Strip thousands-separator commas and convert to numeric
+    Count    = as.numeric(gsub(",", "", Count)),
+    # Keep a consistent factor order for the legend
+    Category = factor(Category, levels = c("Correct", "Incorrect", "No Diagnosis"))
+  )
+
+# ── Compute percentage labels ─────────────────────────────────────────────────
+df_long <- df_long |>
+  group_by(Model) |>
+  mutate(
+    Total   = sum(Count),
+    Pct     = Count / Total,
+    # Only show label when the slice is wide enough to read
+    Label   = ifelse(Pct >= 0.03, paste0(round(Pct * 100, 1), "%"), "")
+  ) |>
+  ungroup()
+
+# ── Colour palette ────────────────────────────────────────────────────────────
+palette <- c(
+  "Correct"      = "#4CAF82",   # green
+  "Incorrect"    = "#E05C5C",   # red
+  "No Diagnosis" = "#B0BEC5"    # light grey
+)
+
+# ── Plot ──────────────────────────────────────────────────────────────────────
+p <- ggplot(df_long, aes(x = Model, y = Count, fill = Category)) +
+  geom_col(width = 0.65, colour = "white", linewidth = 0.3) +
+  geom_text(
+    aes(label = Label),
+    position = position_stack(vjust = 0.5),
+    size      = 3.2,
+    colour    = "white",
+    fontface  = "bold"
+  ) +
+  scale_fill_manual(values = palette, name = NULL) +
+  scale_y_continuous(
+    labels = label_comma(),
+    expand = expansion(mult = c(0, 0.04))
+  ) +
+  labs(
+    title    = "AI Model Diagnostic Accuracy",
+    subtitle = "Number of cases by outcome per model",
+    x        = NULL,
+    y        = "Number of Cases"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    plot.title       = element_text(face = "bold", size = 15, hjust = 0),
+    plot.subtitle    = element_text(colour = "grey50", size = 11, hjust = 0,
+                                    margin = margin(b = 12)),
+    axis.text.x      = element_text(size = 11),
+    axis.text.y      = element_text(colour = "grey40"),
+    axis.title.y     = element_text(colour = "grey40", size = 11,
+                                    margin = margin(r = 8)),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor   = element_blank(),
+    legend.position    = "top",
+    legend.key.size    = unit(0.45, "cm"),
+    legend.text        = element_text(size = 11),
+    plot.margin        = margin(16, 20, 12, 12)
+  )
+
+# ── Save ──────────────────────────────────────────────────────────────────────
+ggsave(
+  filename = "model_accuracy_chart.png",
+  plot     = p,
+  width    = 10,
+  height   = 6,
+  dpi      = 180
+)
+
+message("Chart saved to model_accuracy_chart.png")

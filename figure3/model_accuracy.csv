@@ -1,0 +1,4 @@
+output,ChatGPT,BiomedCLIP,Citrus-V,Claude,Llama,Monet,SkinGPT,Total
+Incorrect,"1,322","1,895","1,801","1,455","1,478","1,840","1,678","11,469"
+Correct,663,91,73,531,476,146,108,"2,088"
+No Diagnosis,1,0,112,0,32,0,200,345
